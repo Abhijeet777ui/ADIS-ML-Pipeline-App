@@ -1,0 +1,359 @@
+"""
+ADIS - Model Benchmarking Module
+Trains 3-4 models + dummy baseline, computes metrics, and compiles
+a comparative benchmarking report with full explanations.
+"""
+import pandas as pd
+import numpy as np
+from typing import Dict, Any, List, Optional, Tuple
+import time
+import logging
+import warnings
+
+warnings.filterwarnings('ignore')
+logger = logging.getLogger(__name__)
+
+
+def prepare_X_y(
+    df: pd.DataFrame,
+    target_col: str,
+    problem_type: str,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], Any]:
+    """Prepare feature matrix X and target vector y for training."""
+    if target_col not in df.columns:
+        return None, None, [], None
+    
+    feature_cols = [c for c in df.columns if c != target_col]
+    
+    # Keep only numeric features (encoding already done in FE step)
+    numeric_features = [c for c in feature_cols 
+                        if pd.api.types.is_numeric_dtype(df[c])]
+    
+    if not numeric_features:
+        return None, None, [], None
+    
+    X = df[numeric_features].fillna(0).values
+    y_raw = df[target_col]
+    
+    # Encode target for classification
+    if problem_type in ("binary_classification", "multiclass_classification"):
+        y_encoded = pd.Categorical(y_raw).codes
+        label_encoder = pd.Categorical(y_raw).categories
+    else:
+        y_encoded = y_raw.values.astype(float)
+        label_encoder = None
+    
+    return X, y_encoded, numeric_features, label_encoder
+
+
+def _get_classification_models(n_samples: int, has_imbalance: bool) -> List[Tuple[str, Any]]:
+    """Return list of (name, model) tuples for classification."""
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.dummy import DummyClassifier
+    
+    cw = "balanced" if has_imbalance else None
+    
+    models = [
+        ("DummyClassifier (Baseline)", DummyClassifier(strategy="most_frequent")),
+        ("LogisticRegression", LogisticRegression(
+            max_iter=1000, class_weight=cw, random_state=42
+        )),
+        ("RandomForestClassifier", RandomForestClassifier(
+            n_estimators=100, class_weight=cw, random_state=42, n_jobs=-1
+        )),
+        ("GradientBoostingClassifier", GradientBoostingClassifier(
+            n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42
+        )),
+    ]
+    
+    return models
+
+
+def _get_regression_models(n_samples: int) -> List[Tuple[str, Any]]:
+    """Return list of (name, model) tuples for regression."""
+    from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+    from sklearn.linear_model import Ridge
+    from sklearn.dummy import DummyRegressor
+    
+    models = [
+        ("DummyRegressor (Baseline)", DummyRegressor(strategy="mean")),
+        ("Ridge", Ridge(alpha=1.0)),
+        ("RandomForestRegressor", RandomForestRegressor(
+            n_estimators=100, random_state=42, n_jobs=-1
+        )),
+        ("GradientBoostingRegressor", GradientBoostingRegressor(
+            n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42
+        )),
+    ]
+    
+    return models
+
+
+def compute_classification_metrics(y_true, y_pred, y_prob=None) -> Dict[str, float]:
+    """Compute a suite of classification metrics."""
+    from sklearn.metrics import (
+        accuracy_score, f1_score, precision_score, recall_score,
+        roc_auc_score, confusion_matrix
+    )
+    
+    n_classes = len(np.unique(y_true))
+    avg = "binary" if n_classes == 2 else "weighted"
+    
+    metrics = {
+        "accuracy": round(float(accuracy_score(y_true, y_pred)), 4),
+        "f1_score": round(float(f1_score(y_true, y_pred, average=avg, zero_division=0)), 4),
+        "precision": round(float(precision_score(y_true, y_pred, average=avg, zero_division=0)), 4),
+        "recall": round(float(recall_score(y_true, y_pred, average=avg, zero_division=0)), 4),
+    }
+    
+    if y_prob is not None:
+        try:
+            if n_classes == 2:
+                auc = roc_auc_score(y_true, y_prob[:, 1])
+            else:
+                auc = roc_auc_score(y_true, y_prob, multi_class="ovr", average="weighted")
+            metrics["roc_auc"] = round(float(auc), 4)
+        except Exception:
+            pass
+    
+    return metrics
+
+
+def compute_regression_metrics(y_true, y_pred) -> Dict[str, float]:
+    """Compute a suite of regression metrics."""
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    
+    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+    mae = float(mean_absolute_error(y_true, y_pred))
+    r2 = float(r2_score(y_true, y_pred))
+    
+    # MAPE (avoid division by zero)
+    mask = y_true != 0
+    mape = float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100) if mask.any() else None
+    
+    return {
+        "rmse": round(rmse, 4),
+        "mae": round(mae, 4),
+        "r2_score": round(r2, 4),
+        "mape_pct": round(mape, 2) if mape is not None else None,
+    }
+
+
+def train_and_evaluate(
+    X_train, X_test, y_train, y_test,
+    model_name: str,
+    model,
+    problem_type: str,
+) -> Dict[str, Any]:
+    """Train a single model and evaluate it."""
+    result = {"model_name": model_name, "status": "success"}
+    
+    try:
+        # Train
+        start_time = time.time()
+        model.fit(X_train, y_train)
+        train_time = round(time.time() - start_time, 3)
+        
+        # Predict
+        y_pred = model.predict(X_test)
+        
+        if problem_type in ("binary_classification", "multiclass_classification"):
+            y_prob = None
+            if hasattr(model, "predict_proba"):
+                try:
+                    y_prob = model.predict_proba(X_test)
+                except Exception:
+                    pass
+            metrics = compute_classification_metrics(y_test, y_pred, y_prob)
+        else:
+            metrics = compute_regression_metrics(y_test, y_pred)
+        
+        # Feature importances
+        feature_importances = None
+        if hasattr(model, "feature_importances_"):
+            feature_importances = model.feature_importances_.tolist()
+        elif hasattr(model, "coef_"):
+            coefs = model.coef_
+            if coefs.ndim > 1:
+                coefs = np.abs(coefs).mean(axis=0)
+            feature_importances = np.abs(coefs).tolist()
+        
+        result.update({
+            "metrics": metrics,
+            "training_time_seconds": train_time,
+            "feature_importances": feature_importances,
+        })
+        
+    except Exception as e:
+        result["status"] = "failed"
+        result["error"] = str(e)
+        result["metrics"] = {}
+        logger.error(f"Model '{model_name}' failed: {e}")
+    
+    return result
+
+
+def run_benchmarking(
+    df: pd.DataFrame,
+    target_col: str,
+    problem_type: str,
+    data_characteristics: Dict,
+    model_recommendations: List[Dict],
+    test_size: float = 0.2,
+    scale_features: bool = True,
+) -> Dict[str, Any]:
+    """
+    Full benchmarking pipeline: train/test split → train models → compare metrics.
+    """
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    
+    X, y, feature_names, label_encoder = prepare_X_y(df, target_col, problem_type)
+    
+    if X is None or len(X) < 20:
+        return {
+            "status": "skipped",
+            "reason": f"Insufficient samples for benchmarking (got {0 if X is None else len(X)}).",
+            "results": [],
+            "explanation": {
+                "title": "Benchmarking",
+                "what_happened": "Skipped — insufficient data.",
+                "why": "Need at least 20 rows to do a train/test split.",
+                "impact": "No benchmark results available.",
+            },
+            "step": "benchmarking",
+        }
+    
+    # Train/test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42,
+        stratify=y if problem_type != "regression" else None
+    )
+    
+    # Feature scaling
+    scaler = None
+    if scale_features:
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+    
+    # Get models
+    has_imbalance = data_characteristics.get("has_imbalance", False)
+    if problem_type in ("binary_classification", "multiclass_classification"):
+        models = _get_classification_models(len(X_train), has_imbalance)
+    else:
+        models = _get_regression_models(len(X_train))
+    
+    # Train each model
+    all_results = []
+    for model_name, model in models:
+        logger.info(f"Training {model_name}...")
+        result = train_and_evaluate(
+            X_train, X_test, y_train, y_test,
+            model_name, model, problem_type
+        )
+        # Attach feature importances with names
+        if result.get("feature_importances") and feature_names:
+            result["feature_importance_map"] = {
+                name: round(float(imp), 4)
+                for name, imp in zip(feature_names, result["feature_importances"])
+                if len(feature_names) == len(result["feature_importances"])
+            }
+        all_results.append(result)
+    
+    # Rank results
+    ranked = _rank_results(all_results, problem_type)
+    
+    # Best model info
+    best = ranked[0] if ranked else None
+    
+    # Split info
+    split_info = {
+        "total_samples": len(X),
+        "train_samples": len(X_train),
+        "test_samples": len(X_test),
+        "test_size_pct": int(test_size * 100),
+        "n_features_used": len(feature_names),
+        "feature_names": feature_names,
+        "feature_scaling": "StandardScaler" if scale_features else "None",
+    }
+    
+    explanation = _generate_benchmark_explanation(ranked, problem_type, split_info, best)
+    
+    return {
+        "status": "success",
+        "results": ranked,
+        "best_model": best["model_name"] if best else None,
+        "split_info": split_info,
+        "explanation": explanation,
+        "step": "benchmarking",
+    }
+
+
+def _rank_results(results: List[Dict], problem_type: str) -> List[Dict]:
+    """Sort results by primary metric."""
+    primary_metric = {
+        "binary_classification": "roc_auc",
+        "multiclass_classification": "f1_score",
+        "regression": "r2_score",
+    }.get(problem_type, "accuracy")
+    
+    def sort_key(r):
+        metrics = r.get("metrics", {})
+        val = metrics.get(primary_metric, metrics.get("accuracy", 0))
+        return val if val is not None else 0
+    
+    # For regression R2, higher is better. For RMSE, lower is better.
+    reverse = problem_type != "regression" or primary_metric != "rmse"
+    
+    return sorted(
+        [r for r in results if r.get("status") == "success"],
+        key=sort_key,
+        reverse=reverse
+    )
+
+
+def _generate_benchmark_explanation(results, problem_type, split_info, best) -> dict:
+    """Generate human-readable benchmarking explanation."""
+    primary_metric = {
+        "binary_classification": "ROC-AUC",
+        "multiclass_classification": "F1-Score",
+        "regression": "R² Score",
+    }.get(problem_type, "Accuracy")
+    
+    model_summary = []
+    for r in results:
+        m = r.get("metrics", {})
+        model_summary.append({
+            "model": r["model_name"],
+            "primary_metric": m.get(
+                "roc_auc" if problem_type == "binary_classification" else
+                "f1_score" if "classification" in problem_type else "r2_score", 
+                m.get("accuracy", "N/A")
+            ),
+            "training_time": r.get("training_time_seconds", "N/A"),
+        })
+    
+    return {
+        "title": "Model Benchmarking",
+        "what_happened": (
+            f"Trained {len(results)} models on {split_info['train_samples']:,} training samples "
+            f"({split_info['test_size_pct']}% held out for testing). "
+            f"Best model: {best['model_name'] if best else 'N/A'}."
+        ),
+        "why": (
+            "Benchmarking multiple algorithms with consistent train/test splits ensures fair comparison. "
+            "The dummy baseline shows what performance would be with no model at all — "
+            "any real model should significantly outperform it."
+        ),
+        "primary_metric": primary_metric,
+        "split_info": split_info,
+        "model_comparison": model_summary,
+        "best_model_metrics": best.get("metrics", {}) if best else {},
+        "impact": (
+            f"Best performer: {best['model_name'] if best else 'N/A'} "
+            f"({primary_metric}: {model_summary[0]['primary_metric'] if model_summary else 'N/A'} "
+            f"vs baseline: {model_summary[-1]['primary_metric'] if len(model_summary) > 1 else 'N/A'})."
+        ),
+    }
