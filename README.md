@@ -2,8 +2,6 @@
 
 Welcome to **ADIS**, a humble yet robust automated machine learning tool designed to simplify the end-to-end data pipeline. Whether you are a beginner looking to understand your data or an experienced data scientist wanting a quick baseline, ADIS takes care of the tedious parts of data preparation, cleaning, analysis, and model benchmarking.
 
-![ADIS Architecture Strategy](https://img.icons8.com/wired/512/FFFFFF/workflow.png)
-
 ## What is it?
 ADIS is a Streamlit-based web application that accepts any standard CSV dataset and automatically performs an end-to-end data science workflow. At each step, the system not only applies data transformations but also provides a **clear, plain-English explanation** of what it did, why it did it, and the impact it had on your data.
 
