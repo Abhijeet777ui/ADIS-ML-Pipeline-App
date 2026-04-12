@@ -15,6 +15,7 @@ from adis.feature_engineering import run_feature_engineering
 from adis.feature_selection import run_feature_selection
 from adis.model_recommendation import run_model_recommendation
 from adis.benchmarking import run_benchmarking
+from adis.critic import run_critic
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -88,7 +89,12 @@ class ADISPipeline:
                                         rec_res["model_recommendations"])
             self.results["benchmarking"] = bench_res
             self.report["steps"].append(bench_res["explanation"])
-        
+            
+            # 7. AI Critic & Diagnosis
+            critic_res = run_critic(self.results)
+            self.results["critic"] = critic_res
+            self.report["steps"].append(critic_res["explanation"])
+            
         self.results["final_df"] = df
         return self.results
 

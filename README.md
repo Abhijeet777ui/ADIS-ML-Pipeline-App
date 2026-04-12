@@ -2,6 +2,9 @@
 
 Welcome to **ADIS**, a humble yet robust automated machine learning tool designed to simplify the end-to-end data pipeline. Whether you are a beginner looking to understand your data or an experienced data scientist wanting a quick baseline, ADIS takes care of the tedious parts of data preparation, cleaning, analysis, and model benchmarking. Use the app using this link https://adis-ml-pipeline-app-cvdooqf5gwnhkldurvjzuu.streamlit.app/
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app-url.streamlit.app)
+*(Click above to view the live deployment!)*
+
 ## What is it?
 ADIS is a Streamlit-based web application that accepts any standard CSV dataset and automatically performs an end-to-end data science workflow. At each step, the system not only applies data transformations but also provides a **clear, plain-English explanation** of what it did, why it did it, and the impact it had on your data.
 

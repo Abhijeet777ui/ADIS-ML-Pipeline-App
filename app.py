@@ -131,7 +131,12 @@ with st.sidebar:
 if "adis_results" in st.session_state:
     results = st.session_state["adis_results"]
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Ingestion & Summary", "🧹 Cleaning", "📊 EDA", "🧬 Engineering", "🤖 Modeling"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Ingestion", "🧹 Cleaning", "📊 EDA", "🧬 Engineering", "🤖 Modeling", "🛑 Vulnerabilities"])
+    
+    # Check production safety first
+    critic = results.get("critic", {})
+    if not critic.get("is_production_safe", True):
+        st.error("🚨 **WARNING:** This pipeline is NOT production safe due to critical structural vulnerabilities detected by the AI Critic. Please see the Vulnerabilities tab.", icon="⚠️")
     
     # --- TAB 1: INGESTION ---
     with tab1:
@@ -265,6 +270,50 @@ if "adis_results" in st.session_state:
                 st.info(bench_res["explanation"]["why"])
         else:
             st.info("Modeling results will appear here if a target column is specified.")
+
+    # --- TAB 6: VULNERABILITIES (AI CRITIC) ---
+    with tab6:
+        st.markdown("### AI Critic Vulnerability Report")
+        if "critic" in results:
+            critic_data = results["critic"]
+            expl = critic_data.get("explanation", {})
+            st.info(expl.get("what_happened", ""))
+            
+            vulnerabilities = critic_data.get("vulnerabilities", [])
+            
+            if not vulnerabilities:
+                st.success("✅ **No cross-signal vulnerabilities found!** The pipeline appears structurally sound.")
+                
+            for v in vulnerabilities:
+                sev = v.get("severity", "info")
+                if sev == "critical":
+                    color = "🔴"
+                    st_call = st.error
+                elif sev == "warning":
+                    color = "🟡"
+                    st_call = st.warning
+                else:
+                    color = "🟢"
+                    st_call = st.success
+                    
+                with st.container():
+                    st_call(f"{color} **{v.get('issue')}** (Confidence: {v.get('confidence', 0.0):.2f})")
+                    
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        st.markdown("**Evidence:**")
+                        for e in v.get("evidence", []):
+                            st.markdown(f"- `{e}`")
+                        st.markdown(f"**Impact:** {v.get('impact')}")
+                    
+                    with c2:
+                        st.markdown(f"**Reasoning:** {v.get('reasoning')}")
+                        st.markdown("**Recommended Fixes:**")
+                        for f in v.get("fix", []):
+                            st.markdown(f"- {f}")
+                    st.markdown("---")
+        else:
+            st.info("AI Critic did not run. Ensure the full pipeline has completed.")
 
 else:
     # Landing Page Visual
