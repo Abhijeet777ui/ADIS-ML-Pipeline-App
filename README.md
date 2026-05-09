@@ -15,7 +15,7 @@ ADIS runs a complete data science pipeline — ingestion, cleaning, EDA, feature
 ### Install
 
 ```bash
-pip install -e .
+pip install adis-autoresearch
 ```
 
 ### Basic Usage (3 lines)
