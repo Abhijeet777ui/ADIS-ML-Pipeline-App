@@ -135,10 +135,12 @@ class AutoResearchAgent:
         # We provide common data science tools in the globals
         from sklearn.preprocessing import OneHotEncoder, StandardScaler, PolynomialFeatures, LabelEncoder
         from itertools import combinations
+        import itertools
         exec_globals = {
             "pd": pd, 
             "np": np, 
             "combinations": combinations,
+            "itertools": itertools,
             "OneHotEncoder": OneHotEncoder,
             "StandardScaler": StandardScaler,
             "PolynomialFeatures": PolynomialFeatures,
