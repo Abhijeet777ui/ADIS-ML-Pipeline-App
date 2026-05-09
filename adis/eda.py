@@ -4,7 +4,6 @@ Auto-generates statistical insights, flags distribution issues,
 correlations, class imbalance, and skewness.
 """
 import pandas as pd
-import numpy as np
 from typing import Dict, Any, List, Optional
 from scipy import stats as scipy_stats
 import logging
@@ -146,7 +145,6 @@ def detect_class_imbalance(df: pd.DataFrame, column_info: Dict,
     Detect class imbalance in potential target columns.
     Checks all low-cardinality categorical columns.
     """
-    from typing import Optional
     
     imbalance_results = {}
     
@@ -278,7 +276,6 @@ def run_eda(df: pd.DataFrame, column_info: Dict, target_col: Optional[str] = Non
     Returns:
         Dict with distributions, correlations, imbalance, flags, and explanation.
     """
-    from typing import Optional
     
     distributions = analyze_distributions(df, column_info)
     correlations = analyze_correlations(df, column_info)

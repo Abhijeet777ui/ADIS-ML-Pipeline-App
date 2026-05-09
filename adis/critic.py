@@ -2,7 +2,7 @@
 # Analyzes cross-signal patterns in the pipeline results to generate an advanced
 # vulnerability report (Leakage, Overfitting, Metric Illusion, etc.)
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 def run_critic(results: Dict[str, Any]) -> Dict[str, Any]:
     vulnerabilities = []
@@ -104,27 +104,65 @@ def run_critic(results: Dict[str, Any]) -> Dict[str, Any]:
             "reasoning": "Tree-based ensembles have very high capacity and will easily memorize small datasets. Training them on datasets with fewer than 1000 samples often results in high structural variance and poor generalization.",
             "impact": "Performance on production data may be substantially lower than validation scores.",
             "fix": [
-                "Implement strict Cross-Validation (e.g., 5-Fold Stratified).",
                 "Reduce tree depth and increase regularization.",
                 "Consider simpler linear models or Naive Bayes as baselines."
             ],
             "confidence": 0.85
         })
         
-    # 4. Safe baseline (if no vulnerabilities)
-    if not vulnerabilities:
+    # 4. Temporal Leakage Risk
+    dt_features = results.get("feature_engineering", {}).get("new_features", [])
+    has_temporal = any("year" in f or "month" in f or "day" in f for f in dt_features)
+    if has_temporal:
         vulnerabilities.append({
-            "issue": "No Critical Structural Flaws Detected",
+            "issue": "High Risk of Temporal Leakage",
+            "severity": "warning",
+            "evidence": [
+                "Datetime features detected and parsed.",
+                "Random Train/Test split used."
+            ],
+            "reasoning": "When data has a time dimension, random splitting allows the model to 'see into the future' (e.g., training on Friday's data to predict Thursday's).",
+            "impact": "Overly optimistic evaluation. The model will perform worse on future out-of-time data.",
+            "fix": [
+                "Switch to TimeSeriesSplit or an Out-of-Time validation set.",
+                "Ensure no future features (like 'updated_at') leaked into the predictors."
+            ],
+            "confidence": 0.90
+        })
+        
+    # 5. Production Readiness Check (Flaw 10)
+    production_blockers = []
+    if is_complex and n_rows < 5000:
+        production_blockers.append("Dataset too small for complex tree ensembles in production without rigorous out-of-time validation.")
+    if has_severe_imbalance and roc_auc < 0.7:
+        production_blockers.append("Model fails to adequately capture the minority class.")
+        
+    if production_blockers:
+        vulnerabilities.append({
+            "issue": "Not Ready for Production",
+            "severity": "critical",
+            "evidence": production_blockers,
+            "reasoning": "The model fails basic production robustness checks.",
+            "impact": "Deploying this model poses a business risk.",
+            "fix": ["Address the blockers above before deployment."],
+            "confidence": 1.0
+        })
+    else:
+        vulnerabilities.append({
+            "issue": "Model Structurally Sound, but Requires MLOps Infrastructure",
             "severity": "info",
             "evidence": [
-                "Imbalance Ratio within acceptable bounds",
-                "No single feature >70% importance",
-                "Dataset scaling appropriate for model chosen"
+                "No severe leakage detected",
+                "Metrics are stable and balanced"
             ],
-            "reasoning": "Based on cross-signal heuristics, the generated pipeline and dataset do not exhibit obvious signs of metric illusion, target leakage, or gross overfitting.",
-            "impact": "Model is structurally sound.",
-            "fix": ["Proceed with qualitative human review and out-of-time validation."],
-            "confidence": 0.70
+            "reasoning": "While the math looks okay, an ML model is not 'production safe' until MLOps practices are in place.",
+            "impact": "Safe for A/B testing or Shadow Deployment.",
+            "fix": [
+                "Implement Data Drift detection (e.g., EvidentlyAI).",
+                "Set up a continuous retraining schedule.",
+                "Require Human-in-the-Loop review for the first 30 days."
+            ],
+            "confidence": 0.80
         })
 
     # Sort vulnerabilities by severity (critical first)
@@ -133,9 +171,13 @@ def run_critic(results: Dict[str, Any]) -> Dict[str, Any]:
     
     is_safe = len([v for v in vulnerabilities if v["severity"] == "critical"]) == 0
     
+    # Never auto-approve for production (Flaw 10)
+    is_production_safe = False
+    
     return {
         "step": "critic",
-        "is_production_safe": is_safe,
+        "is_production_safe": is_production_safe,
+        "is_structurally_safe": is_safe,
         "vulnerabilities": vulnerabilities,
         "explanation": {
             "title": "AI Critic & Diagnosis Engine",

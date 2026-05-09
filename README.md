@@ -1,85 +1,203 @@
-# ADIS (Automated Data Intelligence System)
+# ADIS — Automated Data Intelligence System
 
-Welcome to **ADIS**, a humble yet robust automated machine learning tool designed to simplify the end-to-end data pipeline. Whether you are a beginner looking to understand your data or an experienced data scientist wanting a quick baseline, ADIS takes care of the tedious parts of data preparation, cleaning, analysis, and model benchmarking. Use the app using this link https://adis-ml-pipeline-app-cvdooqf5gwnhkldurvjzuu.streamlit.app/
+[![CI](https://github.com/Abhijeet777ui/ADIS-ML-Pipeline-App/actions/workflows/ci.yml/badge.svg)](https://github.com/Abhijeet777ui/ADIS-ML-Pipeline-App/actions)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app-url.streamlit.app)
-*(Click above to view the live deployment!)*
+**An explainability-first AutoML library with built-in AI vulnerability detection.**
 
-## What is it?
-ADIS is a Streamlit-based web application that accepts any standard CSV dataset and automatically performs an end-to-end data science workflow. At each step, the system not only applies data transformations but also provides a **clear, plain-English explanation** of what it did, why it did it, and the impact it had on your data.
+ADIS runs a complete data science pipeline — ingestion, cleaning, EDA, feature engineering, model benchmarking — and produces a human-readable explanation at every step. Its AI Critic then audits the entire pipeline for data leakage, metric illusions, overfitting risks, and production readiness.
 
-## Pipeline Steps
+---
 
-1. **Ingestion & Summary**: Safely loads your dataset, infers logical data types, and profiles memory usage.
-2. **Data Cleaning**: Intelligently handles missing values, clips outliers, deduplicates rows, and coerces messy string formats.
-3. **Exploratory Data Analysis (EDA)**: Analyzes distributions, computes correlations, flags skewness, and detects dataset structure problems.
-4. **Feature Engineering & Selection**: Generates new insightful features, removes redundant or highly correlated ones, and handles categorical encoding safely.
-5. **Model Recommendation & Benchmarking**: Recommends appropriate algorithms based on problem type (regression, binary, or multiclass classification) and dataset size, and directly benchmarks their performance.
+## Quick Start
 
-## System Outputs & MLOps Integration
-
-While the Streamlit UI aggregates everything for visual consumption, ADIS natively acts as a decoupled backend pipeline. When parsing data, it generates structured artifacts:
-* **`report.json`**: Acts as an API-ready payload containing every mathematical decision, feature drop, and metric result. This makes ADIS perfectly positioned to plug into automated enterprise logging tools like MLflow, Weights & Biases, or any external UI/frontend framework.
-* **`report.md`**: A localized, markdown-rendered version of the entire decision-making process for physical documentation.
-* **`cleaned_data.csv`**: A ready-to-use version of the data after imputation and feature engineering.
-
-## Edge Cases Handled
-
-During development, we paid special attention to several real-world data edge cases to ensure the pipeline doesn't break easily:
-
-* **Unspecified or Missing Target Column**: If a user uploads data simply for analysis without specifying a target to predict, ADIS gracefully defaults to purely analytical behavior, skipping the modeling components without crashing.
-* **Configurable Missing Value Strategies**: The cleaning module supports multiple imputation strategies — `auto` (median for numeric, mode for categorical), `mean`, `mode`, `knn`, and `drop`. KNN imputation is available as an explicit strategy option, not an automatic fallback. The default `auto` strategy uses median/mode, which is robust and safe for most datasets.
-* **Severe Target Imbalance**: Automatically detected during EDA. The system flags minority class issues and recommends strategies like `class_weight='balanced'` or SMOTE to prevent the model from blindly guessing the majority class.
-* **Messy Data Formatting**: Intelligently strips currency formats (e.g., "$1,234.56"), interprets various boolean synonyms ('y', 'yes', 'True', '1'), and converts them efficiently to computational types.
-* **High Cardinality & Near-Zero Variance**: Discovers and flags categorical columns with too many unique values (which would explode dimensionality through one-hot encoding) and features with near-zero variance that provide no predictive power.
-* **Outlier Distortions**: Identifies extreme values using Interquartile Range (IQR) or Z-score methods and clips them safely, preventing algorithms from skewing their decision boundaries.
-* **Multicollinearity Flagging**: Identifies and logs variable pairs with extremely high correlation (e.g., Pearson > 0.8) to prevent redundant feature weights.
-
-## Known Limitations & Unaddressed Edge Cases
-
-As a foundational and basic ML tool, there are a few edge cases and limitations that are outside the current scope of ADIS:
-
-* **Massive Datasets (OOM)**: ADIS processes data entirely in memory using Pandas. If a user uploads an extremely large CSV file (e.g., multiple gigabytes) that exceeds the server's available RAM, the application will crash. It does not currently support chunking, Dask, or Spark for out-of-core processing.
-* **Complex NLP or Free Text**: If a row is full of sentences or unstructured text, ADIS might attempt to treat it as a standard categorical variable. While we flag high cardinality, it might still erroneously attempt to one-hot encode it or crash your session, and it currently lacks native Natural Language Processing (NLP) tokenization capabilities.
-* **Advanced Machine Learning Needs**: ADIS successfully covers strong classical ML algorithms (like Random Forests and basic Gradient Boosting via scikit-learn). However, it does not integrate state-of-the-art external implementations like XGBoost, LightGBM, CatBoost, or Deep Learning. It also does not perform exhaustive hyperparameter optimization.
-* **No Direct Report Download Option**: Currently, the system saves the generated JSON and Markdown execution reports locally to the `adis_output` directory, but the Streamlit user interface lacks a dedicated "Download Report" button to fetch these artifacts directly from the browser.
-* **Time Series & Non-Tabular Data**: This tool is strictly designed for standard cross-sectional tabular data. It does not support unstructured data (images/audio) or time series forecasting data.
-
-## Getting Started
-
-### Prerequisites
-
-Ensure you have Python 3.8+ installed. It's recommended to run this in a virtual environment.
+### Install
 
 ```bash
-# 1. Clone the repository (or download the files)
-git clone <repository_url>
-cd Basic_ML
+pip install -e .
+```
 
-# 2. Create and activate a Virtual Environment
-python -m venv .venv
-# On Windows
-.venv\Scripts\activate
-# On Mac/Linux
-source .venv/bin/activate
+### Basic Usage (3 lines)
 
-# 3. Install Requirements
-pip install -r requirements.txt
+```python
+from adis import ADISPipeline
 
-# 4. Run the Streamlit Application
+pipeline = ADISPipeline(target_column="target")
+results = pipeline.run("data.csv")
+pipeline.save_report()   # Saves report.json + report.md + cleaned_data.csv
+```
+
+### Use Individual Modules
+
+```python
+from adis import run_ingestion, run_cleaning, run_eda, run_critic
+
+# Just ingest and inspect
+result = run_ingestion("data.csv")
+print(result["column_info"])     # Per-column type detection
+print(result["validation"])      # Schema issues & warnings
+
+# Clean a DataFrame
+from adis import run_cleaning
+cleaned = run_cleaning(df, column_info, strategy="knn")
+print(cleaned["log"])            # Every cleaning action logged
+
+# Run the AI Critic on any pipeline results
+critic = run_critic(pipeline_results)
+for vuln in critic["vulnerabilities"]:
+    print(f"[{vuln['severity']}] {vuln['issue']}")
+```
+
+### Use the Autonomous Agent (Experimental)
+
+```python
+from adis.agent import AutoResearchAgent
+
+agent = AutoResearchAgent(
+    filepath="data.csv",
+    target_column="price",
+    max_iterations=10,
+)
+# Requires: GEMINI_API_KEY env var + ADIS_ALLOW_EXEC=1
+results = agent.optimize()
+```
+
+---
+
+## What Makes ADIS Different
+
+| Feature | Typical AutoML | ADIS |
+|---------|---------------|------|
+| **Explainability** | Post-hoc (SHAP/LIME) | Built into every step — `what_happened`, `why`, `impact` |
+| **Safety Audit** | None | AI Critic detects leakage, metric illusions, overfitting |
+| **Pipeline Report** | Metrics table | Full Markdown/JSON narrative with rationale |
+| **Leakage Prevention** | Manual | Automatic — train/test split before feature engineering |
+| **Target** | Best score | Best score *that's safe for production* |
+
+---
+
+## Pipeline Stages
+
+```
+CSV File
+  │
+  ▼
+┌─────────────────┐
+│   Ingestion     │  → Type detection, schema validation, warnings
+├─────────────────┤
+│   Cleaning      │  → Imputation, dedup, outlier detection, type coercion
+├─────────────────┤
+│   EDA           │  → Distributions, correlations, class imbalance, flags
+├─────────────────┤
+│   Feature Eng.  │  → Log/sqrt transforms, binning, OHE, datetime decomposition
+├─────────────────┤
+│   Feature Sel.  │  → Variance filter, correlation filter, mutual information
+├─────────────────┤
+│   Benchmarking  │  → 3-4 models + dummy baseline, full metric suite
+├─────────────────┤
+│   AI Critic     │  → Cross-signal vulnerability detection
+└─────────────────┘
+  │
+  ▼
+JSON/Markdown Report + Cleaned CSV
+```
+
+Each stage returns a structured result dict with:
+- **`df`** — The transformed DataFrame
+- **`explanation`** — Human-readable `{title, what_happened, why, impact}`
+- **`step`** — Stage identifier
+
+---
+
+## AI Critic — Vulnerability Detection
+
+The Critic cross-references signals from across the pipeline to flag issues that single-stage analysis would miss:
+
+| Vulnerability | What It Catches |
+|--------------|-----------------|
+| **Metric Illusion** | High accuracy + low AUC on imbalanced data = model is lazy |
+| **Target Leakage** | Near-perfect score driven by one dominant feature |
+| **Overfitting Risk** | Complex model on tiny dataset |
+| **Temporal Leakage** | Random split on time-series data |
+| **Production Blockers** | Composite check — is this model safe to deploy? |
+
+```python
+critic = results["critic"]
+print(critic["is_structurally_safe"])   # True/False
+for v in critic["vulnerabilities"]:
+    print(f"  [{v['severity']}] {v['issue']} (confidence: {v['confidence']})")
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GEMINI_API_KEY` | For agent only | API key for LLM-powered research agent |
+| `ADIS_ALLOW_EXEC` | For agent only | Set to `1` to enable code execution sandbox |
+
+### Optional Dependencies
+
+```bash
+pip install -e ".[ui]"          # Streamlit dashboard
+pip install -e ".[agent]"       # Autonomous research agent
+pip install -e ".[imbalanced]"  # SMOTE oversampling
+pip install -e ".[all]"         # Everything
+pip install -e ".[dev]"         # pytest + ruff
+```
+
+---
+
+## Streamlit Dashboard
+
+A visual frontend is included for interactive exploration:
+
+```bash
+pip install -e ".[ui]"
 streamlit run app.py
 ```
 
-## Tech Stack
+---
 
-* **Frontend UI**: [Streamlit](https://streamlit.io/)
-* **Data Processing**: Pandas, NumPy
-* **Data Visualization**: Plotly
-* **Machine Learning**: Scikit-Learn, SciPy
+## Development
 
-## Disclaimer
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-This project is intended as a helpful utility and a learning tool. While ADIS is thorough, truly intelligent pipelines require domain expertise and an understanding of contextual limitations. Always sanity-check automated ML solutions in production!
+# Run tests
+pytest tests/ -v
+
+# Lint
+ruff check adis/ tests/
+```
 
 ---
-*Created with care to simplify the data intelligence journey.*
+
+## Project Structure
+
+```
+adis/
+├── __init__.py              # Public API: ADISPipeline + all run_* functions
+├── schemas.py               # Pydantic data contracts
+├── pipeline.py              # Pipeline orchestrator
+├── agent.py                 # Autonomous research agent (experimental)
+├── ingestion.py             # CSV loading, type detection, validation
+├── cleaning.py              # Imputation, dedup, outliers, coercion
+├── eda.py                   # Distributions, correlations, imbalance
+├── feature_engineering.py   # Transforms, binning, encoding, datetime
+├── feature_selection.py     # Variance, correlation, mutual information
+├── model_recommendation.py  # Problem type detection, model ranking
+├── benchmarking.py          # Multi-model training + evaluation
+└── critic.py                # AI vulnerability detection
+```
+
+---
+
+## License
+
+MIT

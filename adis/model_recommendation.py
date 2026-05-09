@@ -4,8 +4,7 @@ Auto-detects problem type (binary/multi-class/regression) and
 recommends the most appropriate models based on data characteristics.
 """
 import pandas as pd
-import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import logging
 
 logger = logging.getLogger(__name__)

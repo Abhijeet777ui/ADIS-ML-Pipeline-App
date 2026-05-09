@@ -10,12 +10,18 @@ venv.bak/
 # Project Specific Output / Temp Files
 temp_data.csv
 adis_output/
+*.pkl
+*.lock
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.egg-info/
+dist/
+build/
+*.egg
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -28,3 +34,9 @@ __pycache__/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

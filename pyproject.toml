@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adis-autoresearch"
+version = "0.1.0"
+description = "Safe, explainability-first AutoML pipeline with AI vulnerability detection and autonomous research agent."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    { name = "Abhijeet Baug" }
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.2.0",
+    "pydantic>=2.0.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.30.0", "plotly>=5.14.0"]
+agent = ["litellm>=1.0.0"]
+imbalanced = ["imbalanced-learn>=0.11.0"]
+all = [
+    "streamlit>=1.30.0",
+    "plotly>=5.14.0",
+    "litellm>=1.0.0",
+    "imbalanced-learn>=0.11.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Abhijeet777ui/ADIS-ML-Pipeline-App"
+Repository = "https://github.com/Abhijeet777ui/ADIS-ML-Pipeline-App"
+
+[tool.setuptools.packages.find]
+include = ["adis*"]
+exclude = ["tests*", "autoresearch-tabular-main*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

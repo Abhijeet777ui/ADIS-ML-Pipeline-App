@@ -3,10 +3,8 @@ ADIS - Data Ingestion Module
 Handles CSV loading, column type detection, and schema validation.
 """
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from typing import Dict, Any, Tuple
-import re
 import logging
 
 logger = logging.getLogger(__name__)

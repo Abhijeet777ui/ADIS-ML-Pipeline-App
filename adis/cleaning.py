@@ -4,9 +4,7 @@ Handles missing values, duplicates, outlier detection, and type coercions.
 All changes are logged for the explanation engine.
 """
 import pandas as pd
-import numpy as np
 from typing import Dict, Any, List, Optional
-from scipy import stats
 import logging
 
 logger = logging.getLogger(__name__)
@@ -234,7 +232,7 @@ def fix_data_types(df: pd.DataFrame, column_info: Dict[str, Dict], log: Cleaning
             try:
                 df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
                 log.log("type_coercion", col, 
-                        f"Converted column to datetime dtype.", 0)
+                        "Converted column to datetime dtype.", 0)
             except Exception:
                 pass
         
@@ -245,7 +243,7 @@ def fix_data_types(df: pd.DataFrame, column_info: Dict[str, Dict], log: Cleaning
             if converted.isna().sum() < df[col].isna().sum() + len(df) * 0.1:
                 df[col] = converted
                 log.log("type_coercion", col, 
-                        f"Coerced string column to numeric (removed non-numeric characters).", 0)
+                        "Coerced string column to numeric (removed non-numeric characters).", 0)
         
         elif detected == "boolean":
             bool_map = {
@@ -256,7 +254,7 @@ def fix_data_types(df: pd.DataFrame, column_info: Dict[str, Dict], log: Cleaning
             if df[col].dtype == object:
                 df[col] = df[col].str.lower().map(bool_map)
                 log.log("type_coercion", col, 
-                        f"Converted boolean-like column to bool dtype.", 0)
+                        "Converted boolean-like column to bool dtype.", 0)
     
     return df
 
@@ -264,7 +262,7 @@ def fix_data_types(df: pd.DataFrame, column_info: Dict[str, Dict], log: Cleaning
 def strip_whitespace(df: pd.DataFrame, log: CleaningLog) -> pd.DataFrame:
     """Strip leading/trailing whitespace from string columns."""
     df = df.copy()
-    str_cols = df.select_dtypes(include='object').columns
+    str_cols = df.select_dtypes(include=['object', 'string']).columns
     
     affected = []
     for col in str_cols:

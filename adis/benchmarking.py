@@ -10,7 +10,6 @@ import time
 import logging
 import warnings
 
-warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
 
 
@@ -51,19 +50,24 @@ def _get_classification_models(n_samples: int, has_imbalance: bool) -> List[Tupl
     from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.dummy import DummyClassifier
+    from sklearn.model_selection import GridSearchCV
     
     cw = "balanced" if has_imbalance else None
+    cv_folds = 5 if n_samples > 100 else 3
     
     models = [
         ("DummyClassifier (Baseline)", DummyClassifier(strategy="most_frequent")),
-        ("LogisticRegression", LogisticRegression(
-            max_iter=1000, class_weight=cw, random_state=42
+        ("LogisticRegression", GridSearchCV(
+            LogisticRegression(max_iter=1000, class_weight=cw, random_state=42),
+            param_grid={'C': [0.1, 1.0, 10.0]}, cv=cv_folds, n_jobs=-1
         )),
-        ("RandomForestClassifier", RandomForestClassifier(
-            n_estimators=100, class_weight=cw, random_state=42, n_jobs=-1
+        ("RandomForestClassifier", GridSearchCV(
+            RandomForestClassifier(class_weight=cw, random_state=42),
+            param_grid={'n_estimators': [50, 100, 200], 'max_depth': [None, 10]}, cv=cv_folds, n_jobs=-1
         )),
-        ("GradientBoostingClassifier", GradientBoostingClassifier(
-            n_estimators=100, max_depth=4, learning_rate=0.1, random_state=42
+        ("GradientBoostingClassifier", GridSearchCV(
+            GradientBoostingClassifier(n_estimators=100, random_state=42),
+            param_grid={'learning_rate': [0.05, 0.1], 'max_depth': [3, 4]}, cv=cv_folds, n_jobs=-1
         )),
     ]
     
@@ -75,15 +79,23 @@ def _get_regression_models(n_samples: int) -> List[Tuple[str, Any]]:
     from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
     from sklearn.linear_model import Ridge
     from sklearn.dummy import DummyRegressor
+    from sklearn.model_selection import GridSearchCV
+    
+    cv_folds = 5 if n_samples > 100 else 3
     
     models = [
         ("DummyRegressor (Baseline)", DummyRegressor(strategy="mean")),
-        ("Ridge", Ridge(alpha=1.0)),
-        ("RandomForestRegressor", RandomForestRegressor(
-            n_estimators=100, random_state=42, n_jobs=-1
+        ("Ridge", GridSearchCV(
+            Ridge(),
+            param_grid={'alpha': [0.1, 1.0, 10.0]}, cv=cv_folds, n_jobs=-1
         )),
-        ("GradientBoostingRegressor", GradientBoostingRegressor(
-            n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42
+        ("RandomForestRegressor", GridSearchCV(
+            RandomForestRegressor(random_state=42),
+            param_grid={'n_estimators': [50, 100, 200], 'max_depth': [None, 10]}, cv=cv_folds, n_jobs=-1
+        )),
+        ("GradientBoostingRegressor", GridSearchCV(
+            GradientBoostingRegressor(n_estimators=100, random_state=42),
+            param_grid={'learning_rate': [0.05, 0.1], 'max_depth': [3, 4]}, cv=cv_folds, n_jobs=-1
         )),
     ]
     
@@ -94,7 +106,7 @@ def compute_classification_metrics(y_true, y_pred, y_prob=None) -> Dict[str, flo
     """Compute a suite of classification metrics."""
     from sklearn.metrics import (
         accuracy_score, f1_score, precision_score, recall_score,
-        roc_auc_score, confusion_matrix
+        roc_auc_score
     )
     
     n_classes = len(np.unique(y_true))
@@ -169,12 +181,14 @@ def train_and_evaluate(
         else:
             metrics = compute_regression_metrics(y_test, y_pred)
         
-        # Feature importances
+        # Feature importances (handle GridSearchCV)
         feature_importances = None
-        if hasattr(model, "feature_importances_"):
-            feature_importances = model.feature_importances_.tolist()
-        elif hasattr(model, "coef_"):
-            coefs = model.coef_
+        base_model = model.best_estimator_ if hasattr(model, "best_estimator_") else model
+        
+        if hasattr(base_model, "feature_importances_"):
+            feature_importances = base_model.feature_importances_.tolist()
+        elif hasattr(base_model, "coef_"):
+            coefs = base_model.coef_
             if coefs.ndim > 1:
                 coefs = np.abs(coefs).mean(axis=0)
             feature_importances = np.abs(coefs).tolist()
@@ -195,41 +209,35 @@ def train_and_evaluate(
 
 
 def run_benchmarking(
-    df: pd.DataFrame,
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
     target_col: str,
     problem_type: str,
     data_characteristics: Dict,
     model_recommendations: List[Dict],
-    test_size: float = 0.2,
     scale_features: bool = True,
 ) -> Dict[str, Any]:
     """
-    Full benchmarking pipeline: train/test split → train models → compare metrics.
+    Full benchmarking pipeline: train models on train set → compare metrics on test set.
     """
-    from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import StandardScaler
     
-    X, y, feature_names, label_encoder = prepare_X_y(df, target_col, problem_type)
+    X_train, y_train, feature_names, label_encoder = prepare_X_y(df_train, target_col, problem_type)
+    X_test, y_test, _, _ = prepare_X_y(df_test, target_col, problem_type)
     
-    if X is None or len(X) < 20:
+    if X_train is None or len(X_train) < 10:
         return {
             "status": "skipped",
-            "reason": f"Insufficient samples for benchmarking (got {0 if X is None else len(X)}).",
+            "reason": f"Insufficient samples for benchmarking (got {0 if X_train is None else len(X_train)}).",
             "results": [],
             "explanation": {
                 "title": "Benchmarking",
                 "what_happened": "Skipped — insufficient data.",
-                "why": "Need at least 20 rows to do a train/test split.",
+                "why": "Need more rows to train models.",
                 "impact": "No benchmark results available.",
             },
             "step": "benchmarking",
         }
-    
-    # Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42,
-        stratify=y if problem_type != "regression" else None
-    )
     
     # Feature scaling
     scaler = None
@@ -237,9 +245,22 @@ def run_benchmarking(
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
         X_test = scaler.transform(X_test)
+        
+    has_imbalance = data_characteristics.get("has_imbalance", False)
+    
+    # SMOTE for Imbalanced Data (Flaw 6)
+    smote_applied = False
+    if has_imbalance and problem_type in ("binary_classification", "multiclass_classification"):
+        try:
+            from imblearn.over_sampling import SMOTE
+            smote = SMOTE(random_state=42)
+            X_train, y_train = smote.fit_resample(X_train, y_train)
+            smote_applied = True
+            logger.info("Applied SMOTE to training data.")
+        except ImportError:
+            logger.warning("imbalanced-learn not installed. Cannot apply SMOTE. Using class weights.")
     
     # Get models
-    has_imbalance = data_characteristics.get("has_imbalance", False)
     if problem_type in ("binary_classification", "multiclass_classification"):
         models = _get_classification_models(len(X_train), has_imbalance)
     else:
@@ -270,13 +291,12 @@ def run_benchmarking(
     
     # Split info
     split_info = {
-        "total_samples": len(X),
         "train_samples": len(X_train),
         "test_samples": len(X_test),
-        "test_size_pct": int(test_size * 100),
         "n_features_used": len(feature_names),
         "feature_names": feature_names,
         "feature_scaling": "StandardScaler" if scale_features else "None",
+        "smote_applied": smote_applied,
     }
     
     explanation = _generate_benchmark_explanation(ranked, problem_type, split_info, best)
@@ -339,7 +359,7 @@ def _generate_benchmark_explanation(results, problem_type, split_info, best) -> 
         "title": "Model Benchmarking",
         "what_happened": (
             f"Trained {len(results)} models on {split_info['train_samples']:,} training samples "
-            f"({split_info['test_size_pct']}% held out for testing). "
+            f"and evaluated on {split_info['test_samples']:,} test samples. "
             f"Best model: {best['model_name'] if best else 'N/A'}."
         ),
         "why": (

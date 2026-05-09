@@ -111,7 +111,6 @@ def apply_binning(
         if info["detected_type"] != "numeric" or col not in df.columns:
             continue
         
-        dist = distributions.get(col, {})
         n_unique = info["unique_count"]
         
         # Only bin if there's enough unique values and it makes sense
