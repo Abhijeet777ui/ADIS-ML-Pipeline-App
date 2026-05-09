@@ -59,7 +59,7 @@ agent = AutoResearchAgent(
     target_column="price",
     max_iterations=10,
 )
-# Requires: GEMINI_API_KEY env var + ADIS_ALLOW_EXEC=1
+# Requires: LLM_API_KEY env var + ADIS_ALLOW_EXEC=1
 results = agent.optimize()
 ```
 
@@ -137,7 +137,7 @@ for v in critic["vulnerabilities"]:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GEMINI_API_KEY` | For agent only | API key for LLM-powered research agent |
+| `LLM_API_KEY` | For agent only | API key for LLM-powered research agent |
 | `ADIS_ALLOW_EXEC` | For agent only | Set to `1` to enable code execution sandbox |
 
 ### Optional Dependencies
