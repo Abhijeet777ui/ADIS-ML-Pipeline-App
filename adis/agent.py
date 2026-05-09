@@ -84,8 +84,9 @@ class AutoResearchAgent:
         1. You must return a JSON object with two keys: "hypothesis" (string) and "code" (string).
         2. The "code" must define a function `build_features(df)`.
         3. IMPORTANT: The `build_features(df)` function MUST return the dataframe with the target column `{self.target_col}` intact.
-        4. Use pandas (pd), numpy (np), and combinations (itertools). They are pre-imported.
-        5. Focus on the most predictive categorical features identified in EDA.
+        4. Use pandas (pd), numpy (np), itertools, and sklearn preprocessing tools. They are pre-imported.
+        5. When using `pd.get_dummies`, DO NOT pass a list of prefixes if you aren't 100% sure of the column count. Prefer `pd.get_dummies(df, columns=['col'])` which handles prefixes automatically.
+        6. Focus on the most predictive categorical features identified in EDA.
         """
         
         logger.info(f"Querying {self.model_name} for next experiment...")
@@ -153,6 +154,9 @@ class AutoResearchAgent:
             logger.error(msg)
             return {"error": msg, "pessimistic_score": 0.0}
 
+        # Create sandbox directory if it doesn't exist
+        os.makedirs("adis_agent_sandbox", exist_ok=True)
+
         try:
             exec(code_str, exec_globals, local_vars)
             build_features = local_vars.get("build_features")
@@ -160,6 +164,8 @@ class AutoResearchAgent:
                 raise ValueError("Generated code must define a function `build_features(df)`")
         except Exception as e:
             logger.error(f"Sandbox compilation error: {e}")
+            with open("adis_agent_sandbox/failed_attempt.py", "w") as f:
+                f.write(f"# FAILED COMPILATION: {e}\n" + code_str)
             return {"error": str(e), "pessimistic_score": 0.0}
             
         # 2. Apply feature engineering to the baseline data
@@ -169,6 +175,8 @@ class AutoResearchAgent:
                 raise ValueError(f"The target column '{self.target_col}' was dropped by your code. You must preserve it.")
         except Exception as e:
             logger.error(f"Sandbox execution error: {e}")
+            with open("adis_agent_sandbox/failed_attempt.py", "w") as f:
+                f.write(f"# FAILED EXECUTION: {e}\n" + code_str)
             return {"error": str(e), "pessimistic_score": 0.0}
             
         # 3. Evaluate the Engineered Data
