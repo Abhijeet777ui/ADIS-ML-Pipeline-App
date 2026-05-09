@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adis-autoresearch"
-version = "0.1.0"
-description = "Safe, explainability-first AutoML pipeline with AI vulnerability detection and autonomous research agent."
+version = "0.1.1"
+description = "Automated Data Intelligence System (ADIS) - Explainable ML Pipeline and AI Critic"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

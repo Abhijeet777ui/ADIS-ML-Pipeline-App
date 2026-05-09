@@ -127,7 +127,7 @@ def mutual_information_selection(
     y = df[target_col]
     
     try:
-        if problem_type == "classification":
+        if problem_type in ("binary_classification", "multiclass_classification", "classification"):
             from sklearn.feature_selection import mutual_info_classif
             y_encoded = pd.Categorical(y).codes
             mi_scores = mutual_info_classif(X, y_encoded, random_state=42)

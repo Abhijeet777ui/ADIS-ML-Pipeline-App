@@ -56,7 +56,7 @@ class ADISPipeline:
         self.results["pipeline_info"] = {
             "filepath": filepath,
             "target_column": self.target_column,
-            "adis_version": "0.1.0",
+            "adis_version": "0.1.1",
             "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         
@@ -209,6 +209,8 @@ class ADISPipeline:
                     return float(obj)
                 if isinstance(obj, np.ndarray):
                     return obj.tolist()
+                if isinstance(obj, np.bool_):
+                    return bool(obj)
                 if isinstance(obj, (datetime, pd.Timestamp)):
                     return obj.isoformat()
                 return super(ADISEncoder, self).default(obj)
