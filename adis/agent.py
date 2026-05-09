@@ -84,9 +84,10 @@ class AutoResearchAgent:
         1. You must return a JSON object with two keys: "hypothesis" (string) and "code" (string).
         2. The "code" must define a function `build_features(df)`.
         3. IMPORTANT: The `build_features(df)` function MUST return the dataframe with the target column `{self.target_col}` intact.
-        4. Use pandas (pd), numpy (np), itertools, and sklearn preprocessing tools. They are pre-imported.
-        5. When using `pd.get_dummies`, DO NOT pass a list of prefixes if you aren't 100% sure of the column count. Prefer `pd.get_dummies(df, columns=['col'])` which handles prefixes automatically.
-        6. Focus on the most predictive categorical features identified in EDA.
+        4. Use pandas (pd), numpy (np), itertools, math, re, and sklearn tools. They are all pre-imported in your environment.
+        5. DO NOT use `pd.get_dummies(df)` on the whole dataframe. Always specify columns: `pd.get_dummies(df, columns=['col'])`.
+        6. Avoid complex loops over millions of rows; prefer vectorized pandas operations.
+        7. If you create new features, ensure they don't have NaN values (use `.fillna(0)` or `SimpleImputer`).
         """
         
         logger.info(f"Querying {self.model_name} for next experiment...")
@@ -134,18 +135,34 @@ class AutoResearchAgent:
         
         # 1. Compile the code string in a local namespace
         # We provide common data science tools in the globals
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler, PolynomialFeatures, LabelEncoder
+        import math
+        import re
+        import datetime
+        import scipy
+        import scipy.stats as stats
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, PolynomialFeatures, LabelEncoder
+        from sklearn.impute import SimpleImputer
+        from sklearn.decomposition import PCA
         from itertools import combinations
         import itertools
+        
         exec_globals = {
             "pd": pd, 
             "np": np, 
-            "combinations": combinations,
+            "math": math,
+            "re": re,
+            "datetime": datetime,
+            "scipy": scipy,
+            "stats": stats,
             "itertools": itertools,
+            "combinations": combinations,
             "OneHotEncoder": OneHotEncoder,
             "StandardScaler": StandardScaler,
+            "MinMaxScaler": MinMaxScaler,
             "PolynomialFeatures": PolynomialFeatures,
-            "LabelEncoder": LabelEncoder
+            "LabelEncoder": LabelEncoder,
+            "SimpleImputer": SimpleImputer,
+            "PCA": PCA
         } 
         local_vars = {}
         # Security Gate: Only allow exec if explicitly opted-in via env var
