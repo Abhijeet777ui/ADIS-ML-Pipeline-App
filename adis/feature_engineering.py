@@ -105,7 +105,6 @@ def apply_binning(
     """
     df = df.copy()
     new_cols = []
-    distributions = eda_results.get("distributions", {})
     
     for col, info in column_info.items():
         if info["detected_type"] != "numeric" or col not in df.columns:

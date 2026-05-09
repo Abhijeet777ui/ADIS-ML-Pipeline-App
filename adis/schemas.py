@@ -11,7 +11,7 @@ Usage:
 """
 
 from pydantic import BaseModel
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 
 
 # ─── Common Explanation Block ────────────────────────────────────────────────
