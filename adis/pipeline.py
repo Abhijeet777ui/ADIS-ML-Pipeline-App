@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 
+from adis.version import __version__
 from adis.exceptions import TargetColumnMissingError
 from adis.ingestion import run_ingestion
 from adis.cleaning import run_cleaning
@@ -56,7 +57,7 @@ class ADISPipeline:
         self.results["pipeline_info"] = {
             "filepath": filepath,
             "target_column": self.target_column,
-            "adis_version": "0.1.1",
+            "adis_version": __version__,
             "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         
@@ -147,10 +148,8 @@ class ADISPipeline:
             fe_res_test = run_feature_engineering(df_test, col_info, train_eda, target_col=self.target_column)
             df_test = fe_res_test["df"]
 
-            # Align columns: test may be missing columns that train created (or vice versa)
-            common_cols = [c for c in df_train.columns if c in df_test.columns]
-            df_train = df_train[common_cols]
-            df_test = df_test[common_cols]
+            # Align columns: test must match training columns exactly
+            df_test = df_test.reindex(columns=df_train.columns, fill_value=0)
             pbar.update(1)
             
             # 5. Feature Selection — fit on train only

@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import time
 from typing import Dict, Any, List, Optional
 from adis.pipeline import ADISPipeline
 from adis.critic import run_critic
@@ -28,7 +29,7 @@ class AutoResearchAgent:
         
         self.learning_log: List[Dict[str, Any]] = []
         self.best_score = -float('inf')
-        self.best_code = {}
+        self.best_code = ""
         
         # We will use litellm for model-agnostic routing
         try:
@@ -53,7 +54,8 @@ class AutoResearchAgent:
         # Initialize best_score from the baseline result
         baseline_results = self.pipeline_results.get("benchmarking", {}).get("results", [])
         if baseline_results:
-            self.best_score = baseline_results[0].get("metrics", {}).get("roc_auc", 0.0)
+            m = baseline_results[0].get("metrics", {})
+            self.best_score = m.get("roc_auc", m.get("accuracy", m.get("r2_score", 0.0)))
             logger.info(f"Baseline Score established: {self.best_score:.4f}")
 
         # Keep the cleaned base data for the sandbox
@@ -63,32 +65,53 @@ class AutoResearchAgent:
         self.context_report = self.pipeline_results.get("eda", {}).get("explanation", {})
         logger.info("Baseline established. Context report generated.")
 
-    def _generate_hypothesis(self) -> Dict[str, str]:
+    def _generate_hypothesis(self, iteration: int = 1) -> Dict[str, str]:
         """
         Ask the LLM to propose new Python code for features or modeling.
         """
         if not self.litellm:
             raise ImportError("litellm is required to run the agent.")
             
-        prompt = f"""
-        You are an autonomous ML research agent. Your goal is to improve the model's {self.target_col} prediction.
-        
-        ADIS ANALYSIS:
-        The pipeline has detected this is a {self.pipeline_results.get('pipeline_info', {}).get('problem_type', 'classification')} problem.
-        EDA context: {json.dumps(self.context_report, indent=2)}
-        
-        PREVIOUS ATTEMPTS & FAILURES:
-        {json.dumps(self.learning_log[-5:], indent=2)}
-        
+        base_rules = f"""
         RULES:
-        1. You must return a JSON object with two keys: "hypothesis" (string) and "code" (string).
+        1. You must return a JSON object with two keys: "hypothesis" (string) and "code" (string). For Iteration 2+, include a "reflection" key.
         2. The "code" must define a function `build_features(df)`.
         3. IMPORTANT: The `build_features(df)` function MUST return the dataframe with the target column `{self.target_col}` intact.
-        4. Use pandas (pd), numpy (np), itertools, math, re, and sklearn tools. They are all pre-imported in your environment.
+        4. Use pandas (pd), numpy (np), itertools, math, re, and sklearn tools. They are all pre-imported.
         5. DO NOT use `pd.get_dummies(df)` on the whole dataframe. Always specify columns: `pd.get_dummies(df, columns=['col'])`.
-        6. Avoid complex loops over millions of rows; prefer vectorized pandas operations.
-        7. If you create new features, ensure they don't have NaN values (use `.fillna(0)` or `SimpleImputer`).
+        6. Avoid complex loops over millions of rows; prefer vectorized operations.
+        7. Ensure new features don't have NaN values.
         """
+        
+        if iteration == 1:
+            prompt = f"""
+            You are an autonomous ML research agent. Your goal is to improve the model's {self.target_col} prediction.
+            
+            ADIS ANALYSIS:
+            The pipeline has detected this is a {self.pipeline_results.get('pipeline_info', {}).get('problem_type', 'classification')} problem.
+            EDA context: {json.dumps(self.context_report, indent=2)}
+            
+            {base_rules}
+            """
+        else:
+            prompt = f"""
+            You are an autonomous ML research agent. Your goal is to improve the model's {self.target_col} prediction.
+            
+            ADIS ANALYSIS:
+            The pipeline has detected this is a {self.pipeline_results.get('pipeline_info', {}).get('problem_type', 'classification')} problem.
+            EDA context: {json.dumps(self.context_report, indent=2)}
+            
+            ===== PREVIOUS ITERATION RESULTS =====
+            {json.dumps(self.learning_log[-3:], indent=2)}
+            
+            ===== MANDATORY REFLECTION SECTION =====
+            Before you propose new feature engineering code, you MUST complete the following analysis in the "reflection" key:
+            1. FAILURE ROOT CAUSE: Why did previous features fail (e.g. leakage, variance, timeout)?
+            2. LESSON LEARNED: What feature engineering approaches are risky here?
+            3. NEW HYPOTHESIS: How will this iteration explicitly avoid the previous failures?
+            
+            {base_rules}
+            """
         
         logger.info(f"Querying {self.model_name} for next experiment...")
         response = self.litellm.completion(
@@ -103,7 +126,7 @@ class AutoResearchAgent:
         content = response.choices[0].message.content
         return json.loads(content)
 
-    def _evaluate_standard(self, df) -> List[float]:
+    def _evaluate_standard(self, df) -> Dict[str, Any]:
         """Evaluate using standard ADIS Benchmarking if no time_col is present."""
         from adis.benchmarking import run_benchmarking
         from sklearn.model_selection import train_test_split
@@ -118,12 +141,7 @@ class AutoResearchAgent:
             data_characteristics={"has_imbalance": False}, model_recommendations=[]
         )
         
-        # Extract ROC-AUC from best model
-        if res.get("status") == "success" and res.get("results"):
-            best = res["results"][0]
-            metrics = best.get("metrics", {})
-            return [metrics.get("roc_auc", metrics.get("accuracy", 0.0))]
-        return [0.0]
+        return res
 
     def _execute_sandbox(self, code_str: str) -> Dict[str, Any]:
         """
@@ -140,9 +158,14 @@ class AutoResearchAgent:
         import datetime
         import scipy
         import scipy.stats as stats
-        from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler, PolynomialFeatures, LabelEncoder
+        from sklearn.preprocessing import (
+            OneHotEncoder, StandardScaler, MinMaxScaler, 
+            PolynomialFeatures, LabelEncoder, PowerTransformer, QuantileTransformer
+        )
         from sklearn.impute import SimpleImputer
         from sklearn.decomposition import PCA
+        from sklearn.pipeline import Pipeline, make_pipeline
+        from sklearn.compose import ColumnTransformer
         from itertools import combinations
         import itertools
         
@@ -162,7 +185,12 @@ class AutoResearchAgent:
             "PolynomialFeatures": PolynomialFeatures,
             "LabelEncoder": LabelEncoder,
             "SimpleImputer": SimpleImputer,
-            "PCA": PCA
+            "PCA": PCA,
+            "PowerTransformer": PowerTransformer,
+            "QuantileTransformer": QuantileTransformer,
+            "Pipeline": Pipeline,
+            "make_pipeline": make_pipeline,
+            "ColumnTransformer": ColumnTransformer
         } 
         local_vars = {}
         # Security Gate: Only allow exec if explicitly opted-in via env var
@@ -194,24 +222,50 @@ class AutoResearchAgent:
             logger.error(f"Sandbox execution error: {e}")
             with open("adis_agent_sandbox/failed_attempt.py", "w") as f:
                 f.write(f"# FAILED EXECUTION: {e}\n" + code_str)
-            return {"error": str(e), "pessimistic_score": 0.0}
+            return {"error": str(e), "pessimistic_score": 0.0, "status": "SANDBOX_ERROR"}
             
-        # 3. Evaluate the Engineered Data
-        scores = self._evaluate_standard(df_engineered)
+        from adis.critic import run_preflight, run_proxy
+        
+        # Tier 1: Pre-Flight
+        preflight = run_preflight(df_engineered, self.target_col, list(self.base_data.columns))
+        if not preflight["is_safe"]:
+            logger.warning(f"Tier 1 (Pre-Flight) REJECTED in {preflight['elapsed_seconds']:.2f}s")
+            return {"error": "PREFLIGHT_REJECTED", "flags": preflight["flags"], "pessimistic_score": 0.0, "status": "TIER_1_FAIL"}
+            
+        # Tier 2: Proxy
+        task_type = self.pipeline_results.get("pipeline_info", {}).get("problem_type", "classification")
+        proxy = run_proxy(df_engineered, self.target_col, task_type=task_type)
+        if proxy["is_suspicious"]:
+            logger.warning(f"Tier 2 (Proxy) REJECTED in {proxy['elapsed_seconds']:.2f}s: {proxy['reason']}")
+            return {"error": "PROXY_SUSPICIOUS", "flags": [{"reason": proxy["reason"]}], "pessimistic_score": proxy["proxy_score"], "status": "TIER_2_FAIL"}
+            
+        # 3. Evaluate the Engineered Data (Tier 3)
+        bench_res = self._evaluate_standard(df_engineered)
         
         # 4. Compute Pessimistic Score (mean - 1 std)
-        mean_score = float(np.mean(scores))
-        std_score = float(np.std(scores)) if len(scores) > 1 else 0.0
-        pessimistic_score = mean_score - (1.0 * std_score)
+        # For agent loop, we simplify pessimistic score to the best model's performance
+        # unless we implement cross-validation inside the sandbox.
+        best_metric = 0.0
+        if bench_res.get("status") == "success" and bench_res.get("results"):
+            best_model = bench_res["results"][0]
+            m = best_model.get("metrics", {})
+            best_metric = m.get("roc_auc", m.get("accuracy", m.get("r2_score", 0.0)))
+
+        pessimistic_score = best_metric # Simplification for now
         
-        logger.info(f"Sandbox Evaluation: mean={mean_score:.4f}, std={std_score:.4f}, pessimistic={pessimistic_score:.4f}")
+        logger.info(f"Sandbox Evaluation: Score={best_metric:.4f}")
         
-        return {
-            "pessimistic_score": pessimistic_score,
-            "metrics": {"roc_auc": mean_score, "std_auc": std_score},
+        # 5. Merge with baseline for Critic Audit
+        # The Critic needs ingestion and eda context to detect leakage/overfitting
+        full_results = self.pipeline_results.copy()
+        full_results.update({
+            "benchmarking": bench_res,
             "feature_engineering": {"new_features": list(df_engineered.columns)},
-            "is_production_safe": True # Passed baseline execution
-        }
+            "pessimistic_score": pessimistic_score,
+            "is_production_safe": True 
+        })
+        
+        return full_results
 
     def optimize(self, iterations: int = 5):
         """The main autonomous loop."""
@@ -220,8 +274,10 @@ class AutoResearchAgent:
             
             # 1. Form Hypothesis
             try:
-                proposal = self._generate_hypothesis()
+                proposal = self._generate_hypothesis(iteration=i+1)
                 logger.info(f"Hypothesis: {proposal.get('hypothesis')}")
+                if "reflection" in proposal:
+                    logger.info(f"Reflection: {proposal.get('reflection')}")
             except Exception as e:
                 logger.error(f"LLM Generation failed: {e}")
                 continue
@@ -229,26 +285,41 @@ class AutoResearchAgent:
             # 2. Run Experiment in Memory
             results = self._execute_sandbox(proposal.get("code", ""))
             
-            # 3. Audit with ADIS Critic
-            critic_report = run_critic(results)
-            
-            # 4. Update Learning Log with results AND critic feedback
-            log_entry = {
-                "iteration": i + 1,
-                "hypothesis": proposal.get("hypothesis"),
-                "score": results.get("pessimistic_score", 0),
-                "is_safe": critic_report.get("is_structurally_safe"),
-                "vulnerabilities": [v.get("issue", "Unknown Issue") for v in critic_report.get("vulnerabilities", [])]
-            }
-            self.learning_log.append(log_entry)
-            
-            if critic_report.get("is_structurally_safe") and results.get("pessimistic_score", 0) > self.best_score:
-                self.best_score = results["pessimistic_score"]
-                self.best_code = proposal.get("code", "")
-                logger.info(f"NEW BEST SCORE: {self.best_score:.4f}")
+            if results.get("status") in ["SANDBOX_ERROR", "TIER_1_FAIL", "TIER_2_FAIL"]:
+                log_entry = {
+                    "iteration": i + 1,
+                    "hypothesis": proposal.get("hypothesis"),
+                    "status": results.get("status"),
+                    "vulnerabilities": [f.get("reason", "Unknown") for f in results.get("flags", [])] if "flags" in results else [results.get("error")]
+                }
+                self.learning_log.append(log_entry)
+                logger.warning(f"REJECTED: {results.get('status')}. Feedback: {log_entry['vulnerabilities']}")
             else:
-                reason = "Lower score" if results.get("pessimistic_score", 0) <= self.best_score else "Rejected by Critic"
-                logger.warning(f"REJECTED: {reason}. Feedback: {log_entry['vulnerabilities']}")
+                # 3. Audit with ADIS Critic (Tier 3)
+                critic_report = run_critic(results)
+                
+                # 4. Update Learning Log with results AND critic feedback
+                log_entry = {
+                    "iteration": i + 1,
+                    "hypothesis": proposal.get("hypothesis"),
+                    "score": results.get("pessimistic_score", 0),
+                    "is_safe": critic_report.get("is_structurally_safe"),
+                    "vulnerabilities": [v.get("issue", "Unknown Issue") for v in critic_report.get("vulnerabilities", [])]
+                }
+                self.learning_log.append(log_entry)
+                
+                if critic_report.get("is_structurally_safe") and results.get("pessimistic_score", 0) > self.best_score:
+                    self.best_score = results["pessimistic_score"]
+                    self.best_code = proposal.get("code", "")
+                    logger.info(f"NEW BEST SCORE: {self.best_score:.4f}")
+                else:
+                    reason = "Lower score" if results.get("pessimistic_score", 0) <= self.best_score else "Rejected by Critic"
+                    logger.warning(f"REJECTED: {reason}. Feedback: {log_entry['vulnerabilities']}")
+                
+            # 5. Rate Limit Safety (Free Tier)
+            if i < iterations - 1:
+                logger.info("Waiting 30s to respect API rate limits...")
+                time.sleep(30)
                 
         logger.info(f"Optimization complete. Best Score: {self.best_score}")
         return self.best_code

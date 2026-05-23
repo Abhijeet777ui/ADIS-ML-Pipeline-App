@@ -105,6 +105,7 @@ def apply_binning(
     """
     df = df.copy()
     new_cols = []
+    distributions = eda_results.get("distributions", {}) if eda_results else {}
     
     for col, info in column_info.items():
         if info["detected_type"] != "numeric" or col not in df.columns:
@@ -116,10 +117,32 @@ def apply_binning(
         if n_unique < n_bins * 2:
             continue
         
-        # Skip if already a count-like column (few values)
         new_col = f"{col}__bin"
+        dist = distributions.get(col, {})
+        bin_edges = dist.get("bin_edges", None)
+        
+        if bin_edges is not None:
+            try:
+                df[new_col] = pd.cut(df[col], bins=bin_edges, labels=False, include_lowest=True)
+                df[new_col] = df[new_col].fillna(-1).astype(int)
+                new_cols.append(new_col)
+                log.log(
+                    new_col, col, "apply_binned_edges",
+                    f"Column '{col}' binned using training set bin edges.",
+                    "Applying training set bin edges to the test dataset ensures consistent discretization."
+                )
+            except Exception as e:
+                logger.warning(f"Failed to apply pre-defined bin edges for {col}: {e}")
+            continue
+            
+        # Skip if already a count-like column (few values)
         try:
-            df[new_col] = pd.qcut(df[col], q=n_bins, labels=False, duplicates='drop')
+            binned_series, edges = pd.qcut(df[col], q=n_bins, labels=False, duplicates='drop', retbins=True)
+            df[new_col] = binned_series
+            dist["bin_edges"] = edges.tolist()
+            dist["bin_edges"][0] = -float('inf')
+            dist["bin_edges"][-1] = float('inf')
+            
             new_cols.append(new_col)
             log.log(
                 new_col, col, f"quantile_binning(n_bins={n_bins})",
@@ -130,7 +153,12 @@ def apply_binning(
         except Exception:
             # Fallback to uniform binning
             try:
-                df[new_col] = pd.cut(df[col], bins=n_bins, labels=False)
+                binned_series, edges = pd.cut(df[col], bins=n_bins, labels=False, retbins=True)
+                df[new_col] = binned_series
+                dist["bin_edges"] = edges.tolist()
+                dist["bin_edges"][0] = -float('inf')
+                dist["bin_edges"][-1] = float('inf')
+                
                 new_cols.append(new_col)
                 log.log(
                     new_col, col, f"uniform_binning(n_bins={n_bins})",
@@ -148,6 +176,7 @@ def apply_one_hot_encoding(
     column_info: Dict,
     log: FeatureLog,
     max_cardinality: int = 15,
+    eda_results: Optional[Dict] = None,
 ) -> Tuple[pd.DataFrame, List[str], List[str]]:
     """
     One-hot encode low-cardinality categorical columns.
@@ -157,15 +186,28 @@ def apply_one_hot_encoding(
     new_cols = []
     dropped_cols = []
     
+    distributions = eda_results.get("distributions", {}) if eda_results else {}
+    
     for col, info in column_info.items():
         if info["detected_type"] not in ("categorical", "boolean") or col not in df.columns:
             continue
         
-        n_unique = info["unique_count"]
+        dist = distributions.get(col, {})
+        categories = dist.get("categories", None)
+        
+        # Fallback to local categories if eda_results/categories are not present
+        if categories is None:
+            categories = sorted([str(x) for x in df[col].dropna().unique()])
+            
+        n_unique = len(categories)
         
         if n_unique <= max_cardinality:
-            # One-hot encode
-            dummies = pd.get_dummies(df[col], prefix=col, drop_first=True, dtype=int)
+            # One-hot encode using categorical pd.Categorical with pre-defined categories
+            # This ensures that both training and testing datasets yield EXACTLY the same dummy columns,
+            # even if some categories don't appear in one of the datasets!
+            cat_series = pd.Categorical(df[col].astype(str), categories=categories)
+            dummies = pd.get_dummies(cat_series, prefix=col, drop_first=True, dtype=int)
+            
             # Remove the original column
             df = df.drop(columns=[col])
             dropped_cols.append(col)
@@ -180,8 +222,9 @@ def apply_one_hot_encoding(
                 "One-hot encoding makes categorical data usable by all ML algorithms."
             )
         elif n_unique <= 100:
-            # Label encode high-cardinality
-            df[f"{col}__label"] = df[col].astype('category').cat.codes
+            # Label encode high-cardinality consistently using pre-defined categories
+            cat_series = pd.Categorical(df[col].astype(str), categories=categories)
+            df[f"{col}__label"] = cat_series.codes
             new_cols.append(f"{col}__label")
             df = df.drop(columns=[col])
             dropped_cols.append(col)
@@ -323,7 +366,7 @@ def run_feature_engineering(
     # Step 5: Categorical encoding (exclude target)
     ci_no_target = {c: v for c, v in column_info.items() if c != target_col}
     df, new_ohe, dropped_cats = apply_one_hot_encoding(
-        df, ci_no_target, log, max_cardinality=max_ohe_cardinality
+        df, ci_no_target, log, max_cardinality=max_ohe_cardinality, eda_results=eda_results
     )
     new_feature_cols.extend(new_ohe)
     dropped_feature_cols.extend(dropped_cats)

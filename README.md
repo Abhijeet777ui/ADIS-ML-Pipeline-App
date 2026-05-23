@@ -74,6 +74,20 @@ results = agent.optimize()
 | **Pipeline Report** | Metrics table | Full Markdown/JSON narrative with rationale |
 | **Leakage Prevention** | Manual | Automatic — train/test split before feature engineering |
 | **Target** | Best score | Best score *that's safe for production* |
+| **Autonomous Research**| Trial & Error LLM scripts | ADIS 2.0: 3-Tier fail-fast evaluation + Forced LLM Introspection |
+
+---
+
+## ADIS 2.0 Autonomous Agent 🤖
+
+The `AutoResearchAgent` is a state-of-the-art closed-loop ML scientist that writes code, tests it, and iterates based on feedback. 
+
+To prevent wasting compute on bad ideas, it uses a **3-Tier "Fail-Fast" Architecture**:
+1. **Tier 1 (Pre-Flight Critic)**: Instant statistical checks (<1s) block features with >0.95 correlation to the target (leakage) or zero variance.
+2. **Tier 2 (Proxy Critic)**: Fast proxy training (<5s). Uses a shallow Decision Tree to detect suspiciously perfect scores that indicate synthetic leakage.
+3. **Tier 3 (Heavy Benchmarking)**: The full ADIS pipeline evaluates only structurally safe candidates.
+
+**Forced Introspection**: The LLM is forced to conduct a "Failure Root Cause Analysis" before proposing its next hypothesis, enabling true scientific reasoning rather than blind search.
 
 ---
 

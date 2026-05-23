@@ -230,7 +230,7 @@ def fix_data_types(df: pd.DataFrame, column_info: Dict[str, Dict], log: Cleaning
         
         if detected == "datetime" and df[col].dtype == object:
             try:
-                df[col] = pd.to_datetime(df[col], infer_datetime_format=True, errors='coerce')
+                df[col] = pd.to_datetime(df[col], errors='coerce')
                 log.log("type_coercion", col, 
                         "Converted column to datetime dtype.", 0)
             except Exception:

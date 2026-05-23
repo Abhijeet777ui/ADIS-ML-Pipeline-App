@@ -13,6 +13,18 @@ adis_output/
 *.pkl
 *.lock
 
+# Large data files (samples / scratch)
+credit_sample.csv
+*.csv.bak
+
+# Agent sandbox output
+adis_agent_sandbox/
+
+# Scratch / local test scripts
+test_litellm_key.py
+test_agent.py
+create_test_data.py
+
 # Python
 __pycache__/
 *.py[cod]

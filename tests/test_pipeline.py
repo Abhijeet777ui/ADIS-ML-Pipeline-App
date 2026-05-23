@@ -425,5 +425,6 @@ class TestSchemas:
         pipeline = ADISPipeline(target_column="target")
         results = pipeline.run(sample_csv)
         validated = validate_pipeline_info(results["pipeline_info"])
-        assert validated.adis_version == "0.1.0"
+        from adis import __version__
+        assert validated.adis_version == __version__
         assert validated.completed_at is not None

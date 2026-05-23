@@ -12,7 +12,7 @@ Usage:
     pipeline.save_report()
 """
 
-__version__ = "0.1.1"
+from adis.version import __version__
 __author__ = "Abhijeet Baug"
 
 from adis.pipeline import ADISPipeline

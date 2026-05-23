@@ -68,6 +68,7 @@ def analyze_distributions(df: pd.DataFrame, column_info: Dict) -> Dict[str, Dict
                 "type": "categorical",
                 "unique_values": int(series.nunique()),
                 "top_categories": top_5,
+                "categories": sorted([str(x) for x in series.unique()]),
                 "most_frequent": str(value_counts.index[0]) if len(value_counts) > 0 else None,
                 "most_frequent_pct": round(value_counts.iloc[0] / total * 100, 2) if len(value_counts) > 0 else 0,
                 "entropy": round(entropy, 4),

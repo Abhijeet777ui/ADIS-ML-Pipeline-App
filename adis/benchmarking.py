@@ -16,6 +16,7 @@ def prepare_X_y(
     df: pd.DataFrame,
     target_col: str,
     problem_type: str,
+    categories: Optional[Any] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], List[str], Any]:
     """Prepare feature matrix X and target vector y for training."""
     if target_col not in df.columns:
@@ -35,8 +36,9 @@ def prepare_X_y(
     
     # Encode target for classification
     if problem_type in ("binary_classification", "multiclass_classification"):
-        y_encoded = pd.Categorical(y_raw).codes
-        label_encoder = pd.Categorical(y_raw).categories
+        cat_y = pd.Categorical(y_raw, categories=categories)
+        y_encoded = cat_y.codes
+        label_encoder = cat_y.categories
     else:
         y_encoded = y_raw.values.astype(float)
         label_encoder = None
@@ -222,7 +224,7 @@ def run_benchmarking(
     from sklearn.preprocessing import StandardScaler
     
     X_train, y_train, feature_names, label_encoder = prepare_X_y(df_train, target_col, problem_type)
-    X_test, y_test, _, _ = prepare_X_y(df_test, target_col, problem_type)
+    X_test, y_test, _, _ = prepare_X_y(df_test, target_col, problem_type, categories=label_encoder)
     
     if X_train is None or len(X_train) < 10:
         return {

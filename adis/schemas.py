@@ -12,6 +12,7 @@ Usage:
 
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
+from adis.version import __version__
 
 
 # ─── Common Explanation Block ────────────────────────────────────────────────
@@ -136,7 +137,7 @@ class PipelineInfo(BaseModel):
     """Metadata about the pipeline run itself."""
     filepath: str
     target_column: Optional[str] = None
-    adis_version: str = "0.1.0"
+    adis_version: str = __version__
     started_at: str
     completed_at: Optional[str] = None
     problem_type: Optional[str] = None

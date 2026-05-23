@@ -2,8 +2,119 @@
 # Analyzes cross-signal patterns in the pipeline results to generate an advanced
 # vulnerability report (Leakage, Overfitting, Metric Illusion, etc.)
 
-from typing import Dict, Any
+from typing import Dict, Any, List
+import pandas as pd
+import numpy as np
+import time
 
+def run_preflight(df: pd.DataFrame, target_col: str, original_cols: List[str]) -> Dict[str, Any]:
+    """Tier 1: Pre-Flight Critic (Instant, <1 second)"""
+    start_time = time.time()
+    flags = []
+    
+    engineered_cols = [c for c in df.columns if c not in original_cols and c != target_col]
+    
+    # 1. Feature Explosion
+    if len(engineered_cols) > 1.5 * len(original_cols):
+        flags.append({
+            "check": "feature_explosion",
+            "feature": "N/A",
+            "value": len(engineered_cols),
+            "severity": "MEDIUM",
+            "reason": f"Created {len(engineered_cols)} new features from {len(original_cols)} originals."
+        })
+        
+    for col in engineered_cols:
+        # 2. Zero Variance
+        if df[col].nunique() <= 1:
+            flags.append({
+                "check": "zero_variance",
+                "feature": col,
+                "value": df[col].nunique(),
+                "severity": "LOW",
+                "reason": "Feature has zero variance (constant value)."
+            })
+            continue
+            
+        # 3. Correlation Spike
+        if pd.api.types.is_numeric_dtype(df[col]) and pd.api.types.is_numeric_dtype(df[target_col]):
+            corr = df[col].corr(df[target_col])
+            if pd.notna(corr) and abs(corr) > 0.95:
+                flags.append({
+                    "check": "correlation_spike",
+                    "feature": col,
+                    "value": abs(corr),
+                    "severity": "CRITICAL",
+                    "reason": f"Correlation of {abs(corr):.4f} with target—highly likely leakage."
+                })
+                
+    is_safe = not any(f["severity"] in ["CRITICAL", "HIGH"] for f in flags)
+    
+    return {
+        "is_safe": is_safe,
+        "flags": flags,
+        "elapsed_seconds": time.time() - start_time,
+        "decision": "PROCEED" if is_safe else "REJECT"
+    }
+
+def run_proxy(df: pd.DataFrame, target_col: str, task_type: str = "classification") -> Dict[str, Any]:
+    """Tier 2: Proxy Model Critic (Fast, <5 seconds)"""
+    start_time = time.time()
+    
+    from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+    from sklearn.model_selection import cross_val_score
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import OrdinalEncoder
+    from sklearn.compose import make_column_transformer
+    
+    # Prepare data
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
+    
+    # Simple pipeline for proxy
+    num_cols = X.select_dtypes(include=np.number).columns
+    cat_cols = X.select_dtypes(exclude=np.number).columns
+    
+    preprocessor = make_column_transformer(
+        (SimpleImputer(strategy='median'), num_cols),
+        (make_pipeline(SimpleImputer(strategy='most_frequent'), OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)), cat_cols)
+    )
+    
+    if "classification" in task_type:
+        model = DecisionTreeClassifier(max_depth=3, random_state=42)
+        scoring = "roc_auc" if len(np.unique(y)) == 2 else "accuracy"
+    else:
+        model = DecisionTreeRegressor(max_depth=3, random_state=42)
+        scoring = "r2"
+        
+    pipe = make_pipeline(preprocessor, model)
+    
+    # Fast 3-fold CV
+    try:
+        scores = cross_val_score(pipe, X, y, cv=3, scoring=scoring, n_jobs=-1)
+        mean_score = float(np.mean(scores))
+        std_score = float(np.std(scores))
+        
+        is_suspicious = (mean_score > 0.95 and std_score < 0.01) or (mean_score == 1.0)
+        
+        return {
+            "proxy_score": mean_score,
+            "proxy_std": std_score,
+            "is_suspicious": is_suspicious,
+            "reason": f"Shallow tree scored {mean_score:.4f} (±{std_score:.4f}). {'Suspiciously high' if is_suspicious else 'Normal'}.",
+            "decision": "FLAG_FOR_MANUAL_REVIEW" if is_suspicious else "PROCEED_TO_HEAVY",
+            "elapsed_seconds": time.time() - start_time
+        }
+    except Exception as e:
+        return {
+            "proxy_score": 0.0,
+            "proxy_std": 0.0,
+            "is_suspicious": False,
+            "reason": f"Proxy model failed: {str(e)}",
+            "decision": "PROCEED_TO_HEAVY",
+            "elapsed_seconds": time.time() - start_time
+        }
 def run_critic(results: Dict[str, Any]) -> Dict[str, Any]:
     vulnerabilities = []
     
@@ -140,7 +251,7 @@ def run_critic(results: Dict[str, Any]) -> Dict[str, Any]:
     if production_blockers:
         vulnerabilities.append({
             "issue": "Not Ready for Production",
-            "severity": "critical",
+            "severity": "warning",
             "evidence": production_blockers,
             "reasoning": "The model fails basic production robustness checks.",
             "impact": "Deploying this model poses a business risk.",

@@ -6,22 +6,28 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # 1. SET YOUR API KEY
-# Ensure GEMINI_API_KEY is set in your environment variables.
-# e.g., export GEMINI_API_KEY="your_key" in terminal before running.
-if "GEMINI_API_KEY" not in os.environ:
-    logging.warning("GEMINI_API_KEY is not set. The agent will likely fail.")
+# Ensure GROQ_API_KEY is set in your environment variables.
+# e.g., export GROQ_API_KEY="your_key" in terminal before running.
+if "GROQ_API_KEY" not in os.environ:
+    logging.warning("GROQ_API_KEY is not set. The agent will likely fail.")
 
 def main():
+    # 1. SET YOUR API KEY
+    os.environ["GROQ_API_KEY"] = "your_key_here"
+    os.environ["ADIS_ALLOW_EXEC"] = "1"
+
     # 2. Initialize the Agent
-    # We point it to the dataset and specify the Gemini model.
+    # We'll use the existing sample of the data to keep the research loop fast
+    sample_path = "credit_sample.csv"
+
     agent = AutoResearchAgent(
-        data_path="temp_data.csv",
-        target_col="Performance_Score", # The column we are predicting
-        model_name="gemini/gemini-2.5-flash", # Use the free-tier available 2.5 Flash model
+        data_path=sample_path,
+        target_col="Class", # The column we are predicting
+        model_name="groq/llama-3.1-8b-instant", # Active Groq model
     )
     
     # 3. Start the Autonomous Loop
-    # We'll run it for just 2 iterations to see how it works.
+    # We'll run it for 5 iterations.
     print("\n[START] Starting Autonomous Research Agent...")
     best_features_code = agent.optimize(iterations=5)
     
