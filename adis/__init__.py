@@ -37,4 +37,5 @@ __all__ = [
     "run_feature_selection",
     "run_model_recommendation",
     "run_benchmarking",
+    "__version__",
 ]
